@@ -51,6 +51,9 @@ class NoisePipeline(Pipeline):
         offset_x = kwargs.get("offset_x", 0.0)
         offset_y = kwargs.get("offset_y", 0.0)
         blend = kwargs.get("blend", 0.5)
+        octaves = kwargs.get("octaves", 1)
+        lacunarity = kwargs.get("lacunarity", 2.0)
+        gain = kwargs.get("gain", 0.5)
         z_speed = kwargs.get("z_speed", 0.1)
 
         # Update Z offset based on time delta and z_speed
@@ -74,6 +77,9 @@ class NoisePipeline(Pipeline):
                 offset_x=offset_x,
                 offset_y=offset_y,
                 offset_z=offset_z + (t * 0.01),  # Small per-frame offset for temporal coherence
+                octaves=octaves,
+                lacunarity=lacunarity,
+                gain=gain,
                 device=self.device,
             )
 
@@ -90,6 +96,9 @@ class NoisePipeline(Pipeline):
                     offset_x=offset_x + 100,  # Offset each channel
                     offset_y=offset_y,
                     offset_z=offset_z + (t * 0.01),
+                    octaves=octaves,
+                    lacunarity=lacunarity,
+                    gain=gain,
                     device=self.device,
                 )
                 noise_b = generate_noise_field(
@@ -99,6 +108,9 @@ class NoisePipeline(Pipeline):
                     offset_x=offset_x + 200,
                     offset_y=offset_y,
                     offset_z=offset_z + (t * 0.01),
+                    octaves=octaves,
+                    lacunarity=lacunarity,
+                    gain=gain,
                     device=self.device,
                 )
                 noise_rgb = torch.stack([noise_r, noise_g, noise_b], dim=-1)

@@ -120,16 +120,22 @@ def generate_noise_field(
     offset_x: float = 0.0,
     offset_y: float = 0.0,
     offset_z: float = 0.0,
+    octaves: int = 1,
+    lacunarity: float = 2.0,
+    gain: float = 0.5,
     device: torch.device = None,
 ) -> torch.Tensor:
     """
-    Generate a 2D field of Perlin 3D noise.
+    Generate a 2D field of fractal Perlin 3D noise.
 
     Args:
         shape: (height, width) of the output field
         period: Scale of the noise pattern (smaller = more detail)
         amplitude: Intensity of the noise
         offset_x, offset_y, offset_z: Position in noise space
+        octaves: Number of noise layers (harmonics)
+        lacunarity: Frequency multiplier between octaves
+        gain: Amplitude multiplier between octaves (persistence)
         device: Torch device
 
     Returns:
@@ -143,22 +149,43 @@ def generate_noise_field(
 
     yy, xx = torch.meshgrid(y_coords, x_coords, indexing='ij')
 
-    # Scale coordinates to create noise pattern
-    # Larger scale value = more zoomed in (smaller features)
-    scale = 8.0 / period
-    xx = (xx * scale) + offset_x
-    yy = (yy * scale) + offset_y
-    zz = torch.full_like(xx, offset_z)
+    # Initialize result
+    result = torch.zeros_like(xx)
 
-    # Stack coordinates
-    coords = torch.stack([xx, yy, zz], dim=-1)
+    # Fractal noise - layer multiple octaves
+    frequency = 1.0
+    octave_amplitude = 1.0
+    max_value = 0.0  # Track max for normalization
 
-    # Generate noise
-    noise = perlin_noise_3d(coords)
+    for octave in range(octaves):
+        # Scale coordinates for this octave
+        scale = (8.0 / period) * frequency
+        xx_octave = (xx * scale) + offset_x
+        yy_octave = (yy * scale) + offset_y
+        zz_octave = torch.full_like(xx, offset_z * frequency)
+
+        # Stack coordinates
+        coords = torch.stack([xx_octave, yy_octave, zz_octave], dim=-1)
+
+        # Generate noise for this octave
+        noise = perlin_noise_3d(coords)
+
+        # Add to result with current amplitude
+        result += noise * octave_amplitude
+
+        # Track max possible value for normalization
+        max_value += octave_amplitude
+
+        # Update frequency and amplitude for next octave
+        frequency *= lacunarity
+        octave_amplitude *= gain
+
+    # Normalize to [-1, 1] based on theoretical max
+    if max_value > 0:
+        result = result / max_value
 
     # Scale by amplitude and normalize to [0, 1]
-    # Perlin noise is roughly in [-1, 1], so we normalize
-    noise = (noise + 1.0) / 2.0  # First normalize to [0, 1]
-    noise = noise * amplitude  # Then scale by amplitude
+    result = (result + 1.0) / 2.0  # Normalize to [0, 1]
+    result = result * amplitude  # Scale by amplitude
 
-    return noise.clamp(0, 1)
+    return result.clamp(0, 1)

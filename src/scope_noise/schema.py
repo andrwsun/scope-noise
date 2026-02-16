@@ -67,6 +67,34 @@ class NoiseConfig(BasePipelineConfig):
 
     # --- Transform Parameters ---
 
+    # --- Harmonics (Fractal Noise) ---
+
+    octaves: int = Field(
+        default=1,
+        ge=1,
+        le=8,
+        description="Number of noise layers (harmonics) - more octaves = more detail",
+        json_schema_extra=ui_field_config(order=7, label="Octaves"),
+    )
+
+    lacunarity: float = Field(
+        default=2.0,
+        ge=1.0,
+        le=4.0,
+        description="Frequency multiplier between octaves (typically 2.0)",
+        json_schema_extra=ui_field_config(order=8, label="Lacunarity"),
+    )
+
+    gain: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Amplitude multiplier between octaves (persistence)",
+        json_schema_extra=ui_field_config(order=9, label="Gain"),
+    )
+
+    # --- Transform Parameters ---
+
     z_speed: float = Field(
         default=0.1,
         ge=0.0,
