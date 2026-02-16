@@ -12,7 +12,7 @@ Generates animated Simplex 3D noise and blends it with input video. Features tim
 
 ```bash
 # In Scope Settings > Plugins, install from:
-git+https://github.com/YOUR_USERNAME/scope-noise.git
+git+https://github.com/andrwsun/scope-noise.git
 ```
 
 ### Local Development
