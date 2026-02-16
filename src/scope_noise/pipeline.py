@@ -25,7 +25,8 @@ class NoisePipeline(Pipeline):
             if device is not None
             else torch.device("cuda" if torch.cuda.is_available() else "cpu")
         )
-        self.start_time = time.time()
+        self.z_offset = 0.0
+        self.last_time = time.time()
 
     def prepare(self, **kwargs) -> Requirements:
         """We need exactly one input frame per call."""
@@ -52,12 +53,15 @@ class NoisePipeline(Pipeline):
         blend = kwargs.get("blend", 0.5)
         z_speed = kwargs.get("z_speed", 0.1)
 
-        # Get current time for Z animation
-        # Use elapsed time since pipeline started
-        time_seconds = time.time() - self.start_time
+        # Update Z offset based on time delta and z_speed
+        current_time = time.time()
+        delta_time = current_time - self.last_time
+        self.last_time = current_time
 
-        # Calculate animated Z offset
-        offset_z = z_speed * time_seconds
+        # Increment z_offset by z_speed * delta_time (velocity-based)
+        self.z_offset += z_speed * delta_time
+
+        offset_z = self.z_offset
 
         # Generate noise for each frame
         noise_frames = []
