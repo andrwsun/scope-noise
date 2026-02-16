@@ -1,13 +1,35 @@
-"""Simplex 3D noise implementation for PyTorch."""
-
-import math
+"""Perlin-style 3D noise implementation for PyTorch."""
 
 import torch
 
 
-def simplex_noise_3d(coords: torch.Tensor) -> torch.Tensor:
+def fade(t: torch.Tensor) -> torch.Tensor:
+    """Fade function for smooth interpolation."""
+    return t * t * t * (t * (t * 6 - 15) + 10)
+
+
+def lerp(a: torch.Tensor, b: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    """Linear interpolation."""
+    return a + t * (b - a)
+
+
+def grad(hash: torch.Tensor, x: torch.Tensor, y: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
     """
-    Generate 3D Simplex noise.
+    Convert hash value to gradient direction and compute dot product.
+    """
+    # Use hash to select gradient direction
+    h = hash & 15
+
+    # Gradient directions (12 edges of a cube + 4 diagonals)
+    u = torch.where(h < 8, x, y)
+    v = torch.where(h < 4, y, torch.where((h == 12) | (h == 14), x, z))
+
+    return torch.where(h & 1 == 0, u, -u) + torch.where(h & 2 == 0, v, -v)
+
+
+def perlin_noise_3d(coords: torch.Tensor) -> torch.Tensor:
+    """
+    Generate 3D Perlin noise.
 
     Args:
         coords: Tensor of shape (..., 3) with XYZ coordinates
@@ -15,113 +37,66 @@ def simplex_noise_3d(coords: torch.Tensor) -> torch.Tensor:
     Returns:
         Tensor of shape (...) with noise values in range [-1, 1]
     """
-    # Simplex 3D implementation based on Ken Perlin's improved noise
-    # This is a simplified version optimized for GPU
-
-    # Skewing and unskewing factors for 3D
-    F3 = 1.0 / 3.0
-    G3 = 1.0 / 6.0
-
-    # Get input coordinates
     x = coords[..., 0]
     y = coords[..., 1]
     z = coords[..., 2]
 
-    # Skew the input space to determine which simplex cell we're in
-    s = (x + y + z) * F3
-    i = torch.floor(x + s)
-    j = torch.floor(y + s)
-    k = torch.floor(z + s)
+    # Find unit cube containing point
+    X = torch.floor(x).long() & 255
+    Y = torch.floor(y).long() & 255
+    Z = torch.floor(z).long() & 255
 
-    t = (i + j + k) * G3
-    X0 = i - t
-    Y0 = j - t
-    Z0 = k - t
+    # Find relative position in cube
+    x = x - torch.floor(x)
+    y = y - torch.floor(y)
+    z = z - torch.floor(z)
 
-    x0 = x - X0
-    y0 = y - Y0
-    z0 = z - Z0
+    # Compute fade curves
+    u = fade(x)
+    v = fade(y)
+    w = fade(z)
 
-    # Determine which simplex we are in
-    mask_xy = x0 >= y0
-    mask_xz = x0 >= z0
-    mask_yz = y0 >= z0
+    # Create permutation table (simple hash)
+    # Using a reproducible but pseudo-random permutation
+    def hash_coord(xi, yi, zi):
+        return ((xi * 1619 + yi * 31337 + zi * 6971) & 0xFFFFFF) % 256
 
-    i1 = torch.zeros_like(x0)
-    j1 = torch.zeros_like(y0)
-    k1 = torch.zeros_like(z0)
+    # Hash coordinates of 8 cube corners
+    aaa = hash_coord(X, Y, Z)
+    aba = hash_coord(X, Y + 1, Z)
+    aab = hash_coord(X, Y, Z + 1)
+    abb = hash_coord(X, Y + 1, Z + 1)
+    baa = hash_coord(X + 1, Y, Z)
+    bba = hash_coord(X + 1, Y + 1, Z)
+    bab = hash_coord(X + 1, Y, Z + 1)
+    bbb = hash_coord(X + 1, Y + 1, Z + 1)
 
-    i2 = torch.ones_like(x0)
-    j2 = torch.ones_like(y0)
-    k2 = torch.ones_like(z0)
+    # Compute gradients at cube corners and interpolate
+    x1 = lerp(
+        grad(aaa, x, y, z),
+        grad(baa, x - 1, y, z),
+        u
+    )
+    x2 = lerp(
+        grad(aba, x, y - 1, z),
+        grad(bba, x - 1, y - 1, z),
+        u
+    )
+    y1 = lerp(x1, x2, v)
 
-    # X Y Z order
-    mask = mask_xy & mask_xz
-    i1 = torch.where(mask, torch.ones_like(i1), i1)
-    i2 = torch.where(mask, torch.ones_like(i2), i2)
-    j2 = torch.where(mask, torch.ones_like(j2), j2)
-    k2 = torch.where(mask, torch.zeros_like(k2), k2)
+    x1 = lerp(
+        grad(aab, x, y, z - 1),
+        grad(bab, x - 1, y, z - 1),
+        u
+    )
+    x2 = lerp(
+        grad(abb, x, y - 1, z - 1),
+        grad(bbb, x - 1, y - 1, z - 1),
+        u
+    )
+    y2 = lerp(x1, x2, v)
 
-    # X Z Y order
-    mask = (~mask_xy) & mask_xz
-    i1 = torch.where(mask, torch.ones_like(i1), i1)
-    j1 = torch.where(mask, torch.zeros_like(j1), j1)
-    k1 = torch.where(mask, torch.ones_like(k1), k1)
-
-    # Z X Y order
-    mask = (~mask_xy) & (~mask_xz)
-    j1 = torch.where(mask, torch.zeros_like(j1), j1)
-    k1 = torch.where(mask, torch.ones_like(k1), k1)
-    i2 = torch.where(mask, torch.ones_like(i2), i2)
-    j2 = torch.where(mask, torch.zeros_like(j2), j2)
-
-    # Y Z X order
-    mask = mask_xy & (~mask_yz)
-    i1 = torch.where(mask, torch.zeros_like(i1), i1)
-    j1 = torch.where(mask, torch.ones_like(j1), j1)
-    k2 = torch.where(mask, torch.ones_like(k2), k2)
-
-    # Z Y X order
-    mask = (~mask_xy) & (~mask_yz)
-    k1 = torch.where(mask, torch.ones_like(k1), k1)
-
-    # Y X Z order
-    mask = mask_xy & mask_yz
-    j1 = torch.where(mask, torch.ones_like(j1), j1)
-
-    # Offsets for remaining corners
-    x1 = x0 - i1 + G3
-    y1 = y0 - j1 + G3
-    z1 = z0 - k1 + G3
-
-    x2 = x0 - i2 + 2.0 * G3
-    y2 = y0 - j2 + 2.0 * G3
-    z2 = z0 - k2 + 2.0 * G3
-
-    x3 = x0 - 1.0 + 3.0 * G3
-    y3 = y0 - 1.0 + 3.0 * G3
-    z3 = z0 - 1.0 + 3.0 * G3
-
-    # Calculate contribution from each corner
-    def surflet(x, y, z, ix, jy, kz):
-        t = 0.6 - x * x - y * y - z * z
-        t = torch.clamp(t, min=0.0)
-
-        # Pseudo-random gradient based on integer coordinates
-        h = ((ix * 1619 + jy * 31337 + kz * 6971) & 0xFF) / 255.0
-        grad_x = torch.cos(h * 2 * math.pi)
-        grad_y = torch.sin(h * 2 * math.pi)
-        grad_z = torch.cos(h * 3 * math.pi)
-
-        return t * t * t * t * (grad_x * x + grad_y * y + grad_z * z)
-
-    n0 = surflet(x0, y0, z0, i, j, k)
-    n1 = surflet(x1, y1, z1, i + i1, j + j1, k + k1)
-    n2 = surflet(x2, y2, z2, i + i2, j + j2, k + k2)
-    n3 = surflet(x3, y3, z3, i + 1, j + 1, k + 1)
-
-    # Sum contributions and scale to [-1, 1]
-    return 32.0 * (n0 + n1 + n2 + n3)
+    return lerp(y1, y2, w)
 
 
 def generate_noise_field(
@@ -134,7 +109,7 @@ def generate_noise_field(
     device: torch.device = None,
 ) -> torch.Tensor:
     """
-    Generate a 2D field of Simplex 3D noise.
+    Generate a 2D field of Perlin 3D noise.
 
     Args:
         shape: (height, width) of the output field
@@ -144,7 +119,7 @@ def generate_noise_field(
         device: Torch device
 
     Returns:
-        Tensor of shape (height, width) with noise values in range [-amplitude, amplitude]
+        Tensor of shape (height, width) with noise values in range [0, 1]
     """
     H, W = shape
 
@@ -155,15 +130,16 @@ def generate_noise_field(
     yy, xx = torch.meshgrid(y_coords, x_coords, indexing='ij')
 
     # Apply period and offset
-    xx = (xx / period) + offset_x
-    yy = (yy / period) + offset_y
+    # Scale coordinates to create larger patterns
+    xx = (xx * 10.0 / period) + offset_x
+    yy = (yy * 10.0 / period) + offset_y
     zz = torch.full_like(xx, offset_z)
 
     # Stack coordinates
     coords = torch.stack([xx, yy, zz], dim=-1)
 
     # Generate noise
-    noise = simplex_noise_3d(coords)
+    noise = perlin_noise_3d(coords)
 
     # Scale by amplitude and normalize to [0, 1]
     noise = (noise * amplitude + 1.0) / 2.0
