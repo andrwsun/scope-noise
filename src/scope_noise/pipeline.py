@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING
+import time
 
 import torch
 
@@ -12,7 +13,7 @@ if TYPE_CHECKING:
 
 
 class NoisePipeline(Pipeline):
-    """Simplex 3D noise generator inspired by TouchDesigner's Noise TOP."""
+    """Perlin 3D noise generator inspired by TouchDesigner's Noise TOP."""
 
     @classmethod
     def get_config_class(cls) -> type["BasePipelineConfig"]:
@@ -24,7 +25,7 @@ class NoisePipeline(Pipeline):
             if device is not None
             else torch.device("cuda" if torch.cuda.is_available() else "cpu")
         )
-        self.start_time = None
+        self.start_time = time.time()
 
     def prepare(self, **kwargs) -> Requirements:
         """We need exactly one input frame per call."""
@@ -52,9 +53,8 @@ class NoisePipeline(Pipeline):
         z_speed = kwargs.get("z_speed", 0.1)
 
         # Get current time for Z animation
-        # abstime is passed as a dict with 'frame', 'seconds', etc.
-        abstime = kwargs.get("abstime", {})
-        time_seconds = abstime.get("seconds", 0.0) if isinstance(abstime, dict) else 0.0
+        # Use elapsed time since pipeline started
+        time_seconds = time.time() - self.start_time
 
         # Calculate animated Z offset
         offset_z = z_speed * time_seconds
